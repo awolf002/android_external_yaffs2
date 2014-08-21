@@ -48,6 +48,9 @@ static char *mntpoint;
 #include "yaffs_tagsvalidity.h"
 #include "yaffs_packedtags2.h"
 
+/* MOCANA */
+#include "mkyaffs2image.h"
+
 unsigned source_path_len = 0;
 unsigned yaffs_traceMask=0;
 
@@ -330,7 +333,8 @@ static void fix_stat(const char *path, struct stat *s)
     fs_config(path, S_ISDIR(s->st_mode), &s->st_uid, &s->st_gid, &s->st_mode, &capabilities);
 }
 
-static int process_directory(int parent, const char *path, int fixstats)
+/* MOCANA: Add callback */
+static int process_directory(int parent, const char *path, int fixstats, mkyaffs2image_callback callback)
 {
 
 	DIR *dir;
@@ -406,6 +410,8 @@ static int process_directory(int parent, const char *path, int fixstats)
 				{
 				
 					newObj = obj_id++;
+					if (callback != NULL)
+					  callback(full_name);
 					nObjects++;
 
                     if (fixstats) {
@@ -500,7 +506,8 @@ static int process_directory(int parent, const char *path, int fixstats)
 							//printf("directory\n");
 							error =  write_object_header(newObj, YAFFS_OBJECT_TYPE_DIRECTORY, &stats, parent, entry->d_name, -1, NULL, secontext);
 // NCB modified 10/9/2001				process_directory(1,full_name);
-							process_directory(newObj,full_name,fixstats);
+/* MOCANA: Add callback */
+							process_directory(newObj,full_name,fixstats,callback);
 						}
 					}
 				}
@@ -515,6 +522,49 @@ static int process_directory(int parent, const char *path, int fixstats)
 	
 	return 0;
 
+}
+
+/* MOCANA: Add function */
+int mkyaffs2image(char* target_directory, char* filename, int fixstats, mkyaffs2image_callback callback)
+{
+	struct stat stats;
+	char *secontext = NULL;
+
+	memset(obj_list, 0, sizeof(objItem) * MAX_OBJECTS);
+	n_obj = 0;
+	obj_id = YAFFS_NOBJECT_BUCKETS + 1;
+
+	if (stat(target_directory,&stats) < 0)
+		return -1;
+
+	outFile = open(filename,O_CREAT | O_TRUNC | O_WRONLY, S_IREAD | S_IWRITE);
+
+	if(outFile < 0) {
+		fprintf(stderr,"Could not open output file %s\n",filename);
+		return -1;
+	}
+
+	if (fixstats) {
+		int len = strlen(target_directory);
+
+		if((len >= 4) && (!strcmp(target_directory + len - 4, "data"))) {
+			source_path_len = len - 4;
+		} else if((len >= 6) && (!strcmp(target_directory + len - 6, "system"))) {
+			source_path_len = len - 6;
+		} else {
+			fprintf(stderr,"Fixstats (-f) option requested but filesystem is not data or android!\n");
+			return -1;
+		}
+		fix_stat(target_directory, &stats);
+	}
+
+	//printf("Processing directory %s into image file %s\n",argv[1],argv[2]);
+	error =  write_object_header(1, YAFFS_OBJECT_TYPE_DIRECTORY, &stats, 1,"", -1, NULL, secontext);
+	if(error)
+		error = process_directory(YAFFS_OBJECTID_ROOT,target_directory,fixstats,callback);
+
+	close(outFile);
+	return error < 0 ? error : 0;
 }
 
 static void usage(void)
@@ -656,7 +706,7 @@ int main(int argc, char *argv[])
 
     error =  write_object_header(1, YAFFS_OBJECT_TYPE_DIRECTORY, &stats, 1,"", -1, NULL, secontext);
 	if(error)
-	error = process_directory(YAFFS_OBJECTID_ROOT,dir,fixstats);
+	  error = process_directory(YAFFS_OBJECTID_ROOT,dir,fixstats, NULL); /*MOCANA*/
 	
 	close(outFile);
 	
